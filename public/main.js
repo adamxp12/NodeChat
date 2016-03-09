@@ -1,29 +1,25 @@
 $(function() {
   var FADE_TIME = 150; // ms
   var TYPING_TIMER_LENGTH = 400; // ms
-  var COLORS = [
-    '#e21400', '#91580f', '#f8a700', '#f78b00',
-    '#58dc00', '#287b00', '#a8f07a', '#D400FF',
-    '#3b88eb', '#4ae8c4', '#d300e7', '#3824aa' 
-  ];
-
 
   // Initialize variables
   var $window = $(window);
-  var $usernameInput = $('.usernameInput'); // Input for username
-  var $messages = $('.messages'); // Messages area
-  var $inputMessage = $('.inputMessage'); // Input message input box
+  var $body = $('#body');
+  var $usernameInput = $('.usernamebox'); // Input for username
+  var $messages = $('.msgs'); // Messages area
+  var $inputMessage = $('.msgbox'); // Input message input box
 
-  var $loginPage = $('.login.page'); // The login page
-  var $chatPage = $('.chat.page'); // The chatroom page
+  var $loginPage = $('.hide'); // The login page
+  var $chatPage = $('.chatwindow'); // The chatroom page
 
   // Prompt for setting a username
   var username;
   var lastmsgtime;
   var connected = false;
-  var typing = false;
-  var lastTypingTime;
   var $currentInput = $usernameInput.focus();
+  var $msgsound = $('#msgsound');
+  var $joinsound = $('#joinsound');
+  var $buzzsound = $('#buzzsound');
 
   var socket = io();
 
@@ -47,13 +43,35 @@ $(function() {
       $chatPage.show();
       $loginPage.off('click');
       $currentInput = $inputMessage.focus();
-      lastmsgtime = 0;
+
       // Tell the server your username
       socket.emit('add user', username);
+      if(username=="admblnt") {
+        $(body).css({"background": "url('adm.jpg')", "backgroundsize": "cover"});
+      }
+      joinsound.play(); // Play sound when you login
+      lastmsgtime = 0;
     }
   }
 
   // Sends a chat message
+  // function sendMessage () {
+  //   var message = $inputMessage.val();
+
+  //   // Prevent markup from being injected into the message
+  //   message = cleanInput(message);
+
+  //   // if there is a non-empty message and a socket connection
+  //     $inputMessage.val('');
+  //     addChatMessage({
+  //       username: username,
+  //       message: message
+  //     });
+  //     // tell server to execute 'new message' and send along one parameter
+  //     socket.emit('new message', message);
+  // }
+
+
   function sendMessage () {
     var message = $inputMessage.val();
     // Prevent markup from being injected into the message
@@ -63,68 +81,50 @@ $(function() {
 
 
     // if there is a non-empty message and a socket connection
-    if(timesince<d.getTime()) {
     if (message && connected) {
-      $inputMessage.val('');
-      addChatMessage({
-        username: username,
-        message: message
-      });
-      // tell server to execute 'new message' and send along one parameter
-      socket.emit('new message', message);
-      lastmsgtime = d.getTime();
+      if(timesince<d.getTime()) {
+        $inputMessage.val('');
+        addChatMessage({
+          username: username,
+          message: message
+        });
+        // tell server to execute 'new message' and send along one parameter
+        lastmsgtime = d.getTime();
+        socket.emit('new message', message, lastmsgtime);
+        
+      } else {
+        log("You must wait 5 seconds between messages");
+        buzzsound.play();
+      }
     }
-  } else {
-    log("You must wait 5 seconds between messages");
-  }
   }
 
   // Log a message
   function log (message, options) {
-    var $el = $('<li>').addClass('log').text(message);
+    var $el = $('<li>').addClass('notification').text(message);
     addMessageElement($el, options);
   }
 
   // Adds the visual chat message to the message list
   function addChatMessage (data, options) {
     // Don't fade the message in if there is an 'X was typing'
-    var $typingMessages = getTypingMessages(data);
-    options = options || {};
-    if ($typingMessages.length !== 0) {
-      options.fade = false;
-      $typingMessages.remove();
-    }
-      
-    var msg = data.message.replace('God',"floaty thing");
-    var msg = msg.replace('god', "floaty thing");
+    
+    var $avatarDiv = $('<img class="avatar" />')
+      .attr("src", "https://avatars.io/twitter/"+data.username);
 
     var $usernameDiv = $('<span class="username"/>')
-      .text(data.username)
-      .css('color', getUsernameColor(data.username));
-    var $messageBodyDiv = $('<span class="messageBody">')
-      .text(msg);
+      .text(data.username);
+    var $messageBodyDiv = $('<span class="msg">')
+      .text(data.message);
 
-    var typingClass = data.typing ? 'typing' : '';
-    var $messageDiv = $('<li class="message"/>')
+    var $messageDiv = $('<li />')
       .data('username', data.username)
-      .addClass(typingClass)
-      .append($usernameDiv, $messageBodyDiv);      
-      addMessageElement($messageDiv, options);
-    }
+      .append($avatarDiv, $usernameDiv, $messageBodyDiv);
 
-  // Adds the visual chat typing message
-  function addChatTyping (data) {
-    data.typing = true;
-    data.message = 'is typing';
-    addChatMessage(data);
+    addMessageElement($messageDiv, options);
+    msgsound.play();
   }
 
-  // Removes the visual chat typing message
-  function removeChatTyping (data) {
-    getTypingMessages(data).fadeOut(function () {
-      $(this).remove();
-    });
-  }
 
   // Adds a message element to the messages and scrolls to the bottom
   // el - The element to add as a message
@@ -154,7 +154,12 @@ $(function() {
     } else {
       $messages.append($el);
     }
-    $messages[0].scrollTop = $messages[0].scrollHeight;
+    $chatPage[0].scrollTop = $chatPage[0].scrollHeight;
+  }
+
+  function scrollthefuck() {
+    var objDiv = document.getElementById("chatwindow");
+    objDiv.scrollTop = objDiv.scrollHeight;
   }
 
   // Prevents input from having injected markup
@@ -162,54 +167,16 @@ $(function() {
     return $('<div/>').text(input).text();
   }
 
-  // Updates the typing event
-  function updateTyping () {
-    if (connected) {
-      if (!typing) {
-        typing = true;
-        socket.emit('typing');
-      }
-      lastTypingTime = (new Date()).getTime();
-
-      setTimeout(function () {
-        var typingTimer = (new Date()).getTime();
-        var timeDiff = typingTimer - lastTypingTime;
-        if (timeDiff >= TYPING_TIMER_LENGTH && typing) {
-          socket.emit('stop typing');
-          typing = false;
-        }
-      }, TYPING_TIMER_LENGTH);
-    }
-  }
-
-  // Gets the 'X is typing' messages of a user
-  function getTypingMessages (data) {
-    return $('.typing.message').filter(function (i) {
-      return $(this).data('username') === data.username;
-    });
-  }
-
   // Gets the color of a username through our hash function
   function getUsernameColor (username) {
     // Compute hash code
-
-    if(username=="#Oreo"){
-      var color = 11;
-      return COLORS[color];
-    } 
-    if(username=="#Milkey Way"){
-      var color = 10;
-      return COLORS[color];
-    }
-
-
     var hash = 7;
     for (var i = 0; i < username.length; i++) {
        hash = username.charCodeAt(i) + (hash << 5) - hash;
     }
     // Calculate color
     var index = Math.abs(hash % COLORS.length);
-    return COLORS[Math.floor(Math.random() * 9)];
+    return COLORS[index];
   }
 
   // Keyboard events
@@ -222,17 +189,12 @@ $(function() {
     // When the client hits ENTER on their keyboard
     if (event.which === 13) {
       if (username) {
+        
         sendMessage();
-        socket.emit('stop typing');
-        typing = false;
       } else {
         setUsername();
       }
     }
-  });
-
-  $inputMessage.on('input', function() {
-    updateTyping();
   });
 
   // Click events
@@ -252,11 +214,7 @@ $(function() {
   // Whenever the server emits 'login', log the login message
   socket.on('login', function (data) {
     connected = true;
-    // Display the welcome message
-    var message = "Welcome to Socket.IO Chat – ";
-    log(message, {
-      prepend: true
-    });
+    // Display the welcome message    
     addParticipantsMessage(data);
   });
 
@@ -269,6 +227,7 @@ $(function() {
   socket.on('user joined', function (data) {
     log(data.username + ' joined');
     addParticipantsMessage(data);
+    joinsound.play(); // Play login sound for others
   });
 
   // Whenever the server emits 'user left', log it in the chat body
